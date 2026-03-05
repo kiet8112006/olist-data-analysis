@@ -281,7 +281,7 @@ This represents approximately **0.28% of the total records**.
 Since the percentage is very small, the issue is considered **minor** and does not significantly impact geographic analysis.
 
 These records were **retained in the dataset** and marked with `flag_missing_geo = 1` to indicate missing geographic information.
-### Geolocation Data Aggregation
+###2. Geolocation Data Aggregation
 
 The original `olist_geolocation_dataset` contains multiple records for the same ZIP code prefix because each record represents a specific latitude and longitude point.
 
@@ -439,4 +439,225 @@ This indicates **text formatting inconsistencies** in the `city` column, likely 
 
 Such inconsistencies may affect grouping, aggregation, or geographic analysis.  
 Therefore, city names should be standardized during the data cleaning process to ensure consistent analysis results.
+###3. Order Items Table
+Data Completeness Check
+
+To evaluate data completeness, all columns in the olist_order_items_dataset table were checked for missing values.
+
+SQL query used:
+```sql
+SELECT
+SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END) AS null_order_id,
+SUM(CASE WHEN order_item_id IS NULL THEN 1 ELSE 0 END) AS null_order_item_id,
+SUM(CASE WHEN product_id IS NULL THEN 1 ELSE 0 END) AS null_product_id,
+SUM(CASE WHEN seller_id IS NULL THEN 1 ELSE 0 END) AS null_seller_id,
+SUM(CASE WHEN shipping_limit_date IS NULL THEN 1 ELSE 0 END) AS null_shipping_limit_date,
+SUM(CASE WHEN price IS NULL THEN 1 ELSE 0 END) AS null_price,
+SUM(CASE WHEN freight_value IS NULL THEN 1 ELSE 0 END) AS null_freight_value
+FROM dbo.olist_order_items_dataset;
+```
+Result:
+
+The query results show that no missing values were detected in any of the columns of the olist_order_items_dataset table.
+| Column              | NULL count |
+| ------------------- | ---------- |
+| order_id            | 0          |
+| order_item_id       | 0          |
+| product_id          | 0          |
+| seller_id           | 0          |
+| shipping_limit_date | 0          |
+| price               | 0          |
+| freight_value       | 0          |
+Conclusion:
+
+The olist_order_items_dataset table does not contain missing values in any of its key transactional columns.
+
+This indicates that the order item records are complete and suitable for further analysis and modeling.
+### Check Duplicate Records
+Check whether (order_id, order_item_id) has duplicated records in the olist_order_items_dataset table.
+sql query:
+```sql
+SELECT 
+    order_id, 
+    order_item_id, 
+    COUNT(*) AS duplicated_counts
+FROM dbo.olist_order_items_dataset
+GROUP BY order_id, order_item_id
+HAVING COUNT(*) > 1;
+```
+Result:
+The query returned 0 rows.
+Consclusion:
+There are no duplicated records for the combination (order_id, order_item_id).
+This means the dataset maintains data integrity for order items.
+### Check Data Type – shipping_limit_date
+Verify the data type of the shipping_limit_date column.
+sql query:
+```sql
+SELECT data_type
+FROM information_schema.columns
+WHERE table_name = 'olist_order_items_dataset'
+AND column_name = 'shipping_limit_date';
+```
+### Check Range of shipping_limit_date
+Check the minimum and maximum values of shipping_limit_date to detect potential anomalies in the shipping deadline data.
+sql query:
+```sql
+SELECT
+    MIN(shipping_limit_date) AS min_shipping_limit_date,
+    MAX(shipping_limit_date) AS max_shipping_limit_date
+FROM dbo.olist_order_items_dataset;
+```
+Result:
+| min_shipping_limit_date | max_shipping_limit_date |
+| ----------------------- | ----------------------- |
+| 2016-09-19              | 2020-04-09              |
+Consclusion:
+The shipping deadline dates range from September 2016 to April 2020, which falls within the expected time frame of the Olist dataset.
+No abnormal values were detected.
+
+### Check for Negative Price Values
+Verify that the price column does not contain negative values, since product prices should not be below zero.
+sql query:
+```sql
+SELECT price
+FROM dbo.olist_order_items_dataset
+WHERE price < 0;
+```
+Result:
+The query returned 0 rows.
+Consclusion:
+No negative price values were found in the dataset.
+This indicates that the price data is valid and follows expected business rules.
+### Check for Zero Price Values
+Identify records where the price equals zero, which could indicate free items, discounts, or potential data quality issues.
+sql query:
+```sql
+SELECT price
+FROM dbo.olist_order_items_dataset
+WHERE price = 0;
+```
+Result:
+The query returned 0 rows.
+Consclusion:
+No records were found where the product price equals zero.
+This suggests that all order items have a positive price.
+
+### Basic Price Statistics (Mini EDA)
+Generate basic descriptive statistics for the price column to understand its distribution and identify potential outliers.
+sql query:
+```sql
+SELECT
+    MIN(price) AS min_price,
+    MAX(price) AS max_price,
+    AVG(price) AS avg_price
+FROM dbo.olist_order_items_dataset;
+```
+Result:
+| min_price | max_price | avg_price |
+| --------- | --------- | --------- |
+| 0.85      | 6735      | 120.65    |
+Consclusion:
+The minimum price is 0.85, indicating the cheapest product in the dataset.
+The maximum price is 6735, which is significantly higher than the average.
+The average price is 120.65, suggesting most products are sold at moderate prices.
+
+### Detect High Price Outliers
+Identify the most expensive items in the dataset.
+sql query:
+```sql
+SELECT TOP 20
+    order_id,
+    product_id,
+    price
+FROM dbo.olist_order_items_dataset
+ORDER BY price DESC;
+```
+Conslusion:
+This query helps quickly detect potential outliers by listing the most expensive products.
+
+### Price Distribution Overview
+Analyze the overall distribution of the price column by computing key descriptive statistics.
+sql query:
+```sql
+SELECT
+    COUNT(*) AS total_rows,
+    MIN(price) AS min_price,
+    MAX(price) AS max_price,
+    AVG(price) AS avg_price,
+    STD(price) AS std_price
+FROM dbo.olist_order_items_dataset;
+```
+Result:
+| total_rows | min_price | max_price | avg_price | std_price |
+| ---------- | --------- | --------- | --------- | --------- |
+| 112650     | 0.85      | 6735      | 120.65    | 183.63    |
+Consclusion:
+The dataset contains 112,650 order item records.
+The lowest price is 0.85, indicating very low-cost products.
+The highest price is 6,735, which is extremely high compared to the average.
+The average price is 120.65.
+The standard deviation (183.63) is higher than the average price, suggesting that price values are widely spread.
+
+### Freight Cost vs Product Price Check
+Identify order items where the shipping cost (freight_value) exceeds the product price (price).
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_order_items_dataset
+WHERE freight_value > price;
+```
+Result:
+The query returned 4,507 rows.
+Interpretation:
+There are 4,507 order items where the shipping cost is higher than the product price.
+ 
+### Freight Value Distribution Overview
+Analyze the overall distribution of the freight_value column to understand shipping cost patterns.
+sql query:
+```sql
+SELECT
+    COUNT(*) AS total_rows,
+    MIN(freight_value) AS min_freight,
+    MAX(freight_value) AS max_freight,
+    AVG(freight_value) AS avg_freight,
+    STDEV(freight_value) AS std_freight
+FROM dbo.olist_order_items_dataset;
+```
+Result:
+| total_rows | min_freight | max_freight | avg_freight | std_freight |
+| ---------- | ----------- | ----------- | ----------- | ----------- |
+| 112650     | 0           | 409.68      | 19.99       | 15.81       |
+
+Interpretation:
+The dataset contains 112,650 order items.
+The minimum freight cost is 0, meaning some orders had free shipping.
+The maximum freight cost is about 409.68, indicating very expensive deliveries.
+The average shipping cost is around 19.99, which is relatively low compared to product prices.
+The standard deviation (~15.81) indicates moderate variability in shipping costs.
+
+### Detect Highest Shipping Costs
+sql query:
+```sql
+SELECT TOP 20
+    order_id,
+    price,
+    freight_value
+FROM dbo.olist_order_items_dataset
+ORDER BY freight_value DESC;
+```
+Identify the orders with the highest shipping costs to detect potential outliers or expensive logistics cases.
+
+
+
+
+
+
+
+
+
+
+
+
+
 
