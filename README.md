@@ -505,7 +505,7 @@ Conclusion:
 The olist_order_items_dataset table does not contain missing values in any of its key transactional columns.
 
 This indicates that the order item records are complete and suitable for further analysis and modeling.
-### Check Duplicate Records
+#### Check Duplicate Records
 Check whether (order_id, order_item_id) has duplicated records in the olist_order_items_dataset table.
 sql query:
 ```sql
@@ -522,7 +522,7 @@ The query returned 0 rows.
 Consclusion:
 There are no duplicated records for the combination (order_id, order_item_id).
 This means the dataset maintains data integrity for order items.
-### Check Data Type – shipping_limit_date
+#### Check Data Type – shipping_limit_date
 Verify the data type of the shipping_limit_date column.
 sql query:
 ```sql
@@ -538,7 +538,7 @@ Conclusion:
 This data type is appropriate because the column represents the
 deadline for the seller to ship the order to the logistics partner.
 
-### Check Range of shipping_limit_date
+#### Check Range of shipping_limit_date
 Check the minimum and maximum values of shipping_limit_date to detect potential anomalies in the shipping deadline data.
 sql query:
 ```sql
@@ -556,7 +556,7 @@ Consclusion:
 The dataset mainly contains orders between 2016 and 2018,
 therefore shipping deadlines extending beyond 2018 are expected.
 
-### Check for Negative Price Values
+#### Check for Negative Price Values
 Verify that the price column does not contain negative values, since product prices should not be below zero.
 sql query:
 ```sql
@@ -569,7 +569,7 @@ The query returned 0 rows.
 Consclusion:
 No negative price values were found in the dataset.
 This indicates that the price data is valid and follows expected business rules.
-### Check for Zero Price Values
+#### Check for Zero Price Values
 Identify records where the price equals zero, which could indicate free items, discounts, or potential data quality issues.
 sql query:
 ```sql
@@ -583,7 +583,7 @@ Consclusion:
 No records were found where the product price equals zero.
 This suggests that all order items have a positive price.
 
-### Basic Price Statistics (Mini EDA)
+#### Basic Price Statistics (Mini EDA)
 Generate basic descriptive statistics for the price column to understand its distribution and identify potential outliers.
 sql query:
 ```sql
@@ -602,7 +602,7 @@ The minimum price is 0.85, indicating the cheapest product in the dataset.
 The maximum price is 6735, which is significantly higher than the average.
 The average price is 120.65, suggesting most products are sold at moderate prices.
 
-### Detect High Price Outliers
+#### Detect High Price Outliers
 Identify the most expensive items in the dataset.
 sql query:
 ```sql
@@ -616,7 +616,7 @@ ORDER BY price DESC;
 Conslusion:
 This query helps quickly detect potential outliers by listing the most expensive products.
 
-### Price Distribution Overview
+#### Price Distribution Overview
 Analyze the overall distribution of the price column by computing key descriptive statistics.
 sql query:
 ```sql
@@ -639,7 +639,7 @@ The highest price is 6,735, which is extremely high compared to the average.
 The average price is 120.65.
 The standard deviation (183.63) is higher than the average price, suggesting that price values are widely spread.
 
-### Freight Cost vs Product Price Check
+#### Freight Cost vs Product Price Check
 Identify order items where the shipping cost (freight_value) exceeds the product price (price).
 sql query:
 ```sql
@@ -654,7 +654,7 @@ This situation may occur when:
 - the shipping distance is large
 - the item has high shipping weight or dimensions
  
-### Freight Value Distribution Overview
+#### Freight Value Distribution Overview
 Analyze the overall distribution of the freight_value column to understand shipping cost patterns.
 sql query:
 ```sql
@@ -678,7 +678,7 @@ The maximum freight cost is about 409.68, indicating very expensive deliveries.
 The average shipping cost is around 19.99, which is relatively low compared to product prices.
 The standard deviation (~15.81) indicates moderate variability in shipping costs.
 
-### Detect Highest Shipping Costs
+#### Detect Highest Shipping Costs
 sql query:
 ```sql
 SELECT TOP 20
@@ -690,7 +690,7 @@ ORDER BY freight_value DESC;
 ```
 Identify the orders with the highest shipping costs to detect potential outliers or expensive logistics cases.
 
-### Order Items Table Data Quality Summary
+#### Order Items Table Data Quality Summary
 | Check | Result |
 |------|------|
 Missing values | None |
