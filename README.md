@@ -1071,6 +1071,482 @@ The timestamp logic in the review dataset is valid:
 No cases were found where review_answer_timestamp occurs before review_creation_date.
 This confirms that the review timeline is logically consistent.
 
+### 6. Order table
+#### Data Completeness Check
+To evaluate data completeness, all columns in the olist_orders_dataset table were checked for missing values.
+
+sql query:
+```sql
+SELECT
+SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END) AS null_order_id,
+SUM(CASE WHEN customer_id IS NULL THEN 1 ELSE 0 END) AS null_customer_id,
+SUM(CASE WHEN order_status IS NULL THEN 1 ELSE 0 END) AS null_order_status,
+SUM(CASE WHEN order_purchase_timestamp IS NULL THEN 1 ELSE 0 END) AS null_order_purchase_timestamp,
+SUM(CASE WHEN order_approved_at IS NULL THEN 1 ELSE 0 END) AS null_approved,
+SUM(CASE WHEN order_delivered_carrier_date IS NULL THEN 1 ELSE 0 END) AS null_carrier,
+SUM(CASE WHEN order_delivered_customer_date IS NULL THEN 1 ELSE 0 END) AS null_delivered
+FROM dbo.olist_orders_dataset;
+```
+Result:
+
+The query counts the number of NULL values in each column of the orders dataset.
+
+Conclusion:
+
+The analysis shows that the core transactional columns (order_id, customer_id, order_status, order_purchase_timestamp) do not contain missing values.
+
+However, some columns related to the delivery process (order_approved_at, order_delivered_carrier_date, order_delivered_customer_date) contain NULL values.
+This is expected because not all orders reach the delivery stage (for example, canceled or unavailable orders).
+
+#### Duplicate Order ID Check
+To ensure data integrity, a duplicate check was performed on the order_id column.
+
+sql query:
+```sql
+SELECT 
+order_id,
+COUNT(*) AS dup_order_id
+FROM dbo.olist_orders_dataset
+GROUP BY order_id
+HAVING COUNT(*) > 1;
+```
+Result:
+
+The query returned 0 rows, indicating that no duplicate order_id values exist in the dataset.
+
+Conclusion:
+
+Each order in the dataset is uniquely identified by order_id.
+Therefore, order_id can safely be used as the primary key for the orders table.
+
+#### Order Status Distribution
+To understand the distribution of order statuses, a query was executed to count the number of records for each order_status.
+sql query:
+```sql
+SELECT 
+order_status,
+COUNT(*) AS counts,
+CAST(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() AS DECIMAL(5,2)) AS percentage_order_status
+FROM dbo.olist_orders_dataset
+GROUP BY order_status;
+```
+Result:
+
+The query returns the number and percentage of orders for each status.
+Typical order statuses in the dataset include:
+delivered
+shipped
+canceled
+invoiced
+processing
+unavailable
+
+Conclusion:
+
+Most orders in the dataset have the status delivered, indicating successful completion of transactions.
+Other statuses represent orders that are still in process or were canceled.
+
+#### Delivery Time Logical Validation
+#### 1.Approval Before Purchase Check
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_orders_dataset
+WHERE order_approved_at < order_purchase_timestamp;
+```
+Conclusion:
+
+Payment approval should logically occur after the purchase timestamp.
+Any records returned by this query would indicate inconsistent transaction timing.
+
+#### 2.Delivered to Customer Before Carrier Check
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_orders_dataset
+WHERE order_delivered_customer_date < order_delivered_carrier_date;
+```
+Conclusion:
+
+The delivery to the customer should occur after the order is handed to the carrier.
+If such cases exist, they may indicate incorrect timestamps or data entry errors.
+
+#### Delivered Before Purchase Check
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_orders_dataset
+WHERE order_delivered_customer_date < order_purchase_timestamp;
+```
+Conclusion:
+
+An order cannot be delivered before it is purchased.
+Any records found would indicate serious data inconsistencies.
+
+#### Late Delivery Detection
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_orders_dataset
+WHERE order_delivered_customer_date > order_estimated_delivery_date;
+```
+Conclusion:
+
+These records represent late deliveries, where the actual delivery occurred after the estimated delivery date promised to the customer.
+
+This metric can later be used to analyze logistics performance and customer satisfaction.
+
+#### Delivered Orders Without Delivery Date
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_orders_dataset
+WHERE order_status = 'delivered'
+AND order_delivered_customer_date IS NULL;
+```
+Conclusion:
+
+Orders marked as delivered should normally have a valid order_delivered_customer_date.
+If such records exist, they indicate missing delivery information and may require further data investigation.
+
+### 7. Products table
+
+#### Data Completeness Check
+To evaluate data completeness, a query was executed to count NULL values in each column of the olist_products_dataset table.
+sql query:
+```sql
+SELECT
+COUNT(*) AS total_rows,
+SUM(CASE WHEN product_id IS NULL THEN 1 ELSE 0 END) AS null_product_id,
+SUM(CASE WHEN product_category_name IS NULL THEN 1 ELSE 0 END) AS null_category,
+SUM(CASE WHEN product_name_lenght IS NULL THEN 1 ELSE 0 END) AS null_name_length,
+SUM(CASE WHEN product_description_lenght IS NULL THEN 1 ELSE 0 END) AS null_description_length,
+SUM(CASE WHEN product_photos_qty IS NULL THEN 1 ELSE 0 END) AS null_photos,
+SUM(CASE WHEN product_weight_g IS NULL THEN 1 ELSE 0 END) AS null_weight,
+SUM(CASE WHEN product_length_cm IS NULL THEN 1 ELSE 0 END) AS null_length,
+SUM(CASE WHEN product_height_cm IS NULL THEN 1 ELSE 0 END) AS null_height,
+SUM(CASE WHEN product_width_cm IS NULL THEN 1 ELSE 0 END) AS null_width
+FROM dbo.olist_products_dataset;
+```
+Result:
+The query counts the number of missing values across all product attributes.
+
+Conclusion:
+
+The results show that several product attributes contain missing values, particularly fields related to:
+product name length
+product description length
+product dimensions
+product weight
+These fields are optional product attributes and their absence does not prevent transaction processing. However, missing values may affect product analysis and logistics modeling.
+
+#### Duplicate Product ID Check
+To verify data integrity, a duplicate check was performed on the product_id column.
+sql query:
+```sql
+SELECT 
+product_id,
+COUNT(*) AS dup_product_id
+FROM dbo.olist_products_dataset
+GROUP BY product_id
+HAVING COUNT(*) > 1;
+```
+Result:
+
+The query returned 0 rows, indicating that no duplicate product identifiers exist.
+
+Conclusion:
+
+Each product in the dataset is uniquely identified by product_id, meaning it can safely be used as the primary key for the products table.
+
+#### Product Category Distribution
+To analyze how products are distributed across categories, the number of products per category was calculated.
+
+sql query:
+```sql
+SELECT 
+product_category_name,
+COUNT(*) AS total_product,
+CAST(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() AS DECIMAL(5,2)) AS percentage_products
+FROM dbo.olist_products_dataset
+GROUP BY product_category_name;
+```
+Result:
+
+The query returns the number and percentage of products belonging to each category.
+
+Conclusion:
+
+The results provide insight into the distribution of products across categories.
+Some categories contain a significantly larger number of products, which may indicate popular product segments in the marketplace.
+
+#### Missing Category Name Check
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_products_dataset
+WHERE product_category_name IS NULL;
+```
+Conclusion:
+
+Some products do not have an associated category name.
+These records may require additional cleaning or mapping using the product_category_name_translation table during further analysis.
+
+#### Category Name Format Check
+To verify whether product category names contain formatting inconsistencies.
+sql query:
+```sql
+SELECT DISTINCT product_category_name
+FROM dbo.olist_products_dataset
+GROUP BY product_category_name;
+```
+Conclusion:
+
+This check helps identify potential formatting inconsistencies such as:
+spelling variations
+encoding issues
+inconsistent naming conventions
+These inconsistencies may affect aggregation and category-based analysis.
+
+#### Product Dimension Range Check
+To detect abnormal values in product dimensions and weight.
+sql query:
+```sql
+SELECT
+MIN(product_weight_g), MAX(product_weight_g),
+MIN(product_length_cm), MAX(product_length_cm),
+MIN(product_height_cm), MAX(product_height_cm),
+MIN(product_width_cm), MAX(product_width_cm)
+FROM dbo.olist_products_dataset;
+```
+Conclusion:
+
+The minimum and maximum values provide an overview of the range of product sizes and weights.
+Extreme values may indicate:
+unusually large products
+potential data entry errors
+special product categories (e.g., furniture or appliances)
+
+#### Zero Dimension Check
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_products_dataset
+WHERE product_length_cm = 0
+   OR product_height_cm = 0
+   OR product_width_cm = 0;
+```
+Conclusion:
+
+Products with zero dimensions are logically inconsistent, as physical items must have non-zero size.
+These records may represent:
+missing data incorrectly stored as zero
+incomplete product specifications
+Such cases should be flagged for further investigation.
+
+#### Zero Weight Check
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_products_dataset
+WHERE product_weight_g = 0;
+```
+Conclusion:
+
+Products with a weight of zero are likely incorrect because all physical products should have measurable weight.
+These records may represent missing values or data entry issues.
+
+#### Product Text Attribute Validation
+To evaluate the validity of product name length, description length, and number of product photos.
+sql query:
+```sql
+SELECT
+MIN(product_name_lenght), MAX(product_name_lenght),
+MIN(product_description_lenght), MAX(product_description_lenght),
+MIN(product_photos_qty), MAX(product_photos_qty)
+FROM dbo.olist_products_dataset;
+```
+Conclusion:
+
+This query provides the range of textual attributes and helps detect abnormal values such as:
+extremely long descriptions
+missing product names
+unusually high photo counts
+
+#### Empty Product Name or Description Check
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_products_dataset
+WHERE product_name_lenght = 0
+OR product_description_lenght = 0;
+```
+Conclusion:
+
+Records where the product name or description length equals zero may indicate incomplete product listings.
+These cases may affect product search, recommendation systems, or catalog analysis.
+
+#### Excessive Product Photo Check
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_products_dataset
+WHERE product_photos_qty > 10;
+```
+Conclusion:
+
+Products with unusually large numbers of photos may represent premium product listings or potential data entry anomalies.
+Further investigation may be required to determine whether these records are valid.
+
+### 8. Sellers table
+#### Data Completeness Check
+To evaluate the completeness of the seller dataset, a query was executed to count the number of NULL values in each column.
+sql query:
+```sql
+SELECT
+COUNT(*) AS total_rows,
+SUM(CASE WHEN seller_id IS NULL THEN 1 ELSE 0 END) AS null_seller_id,
+SUM(CASE WHEN seller_zip_code_prefix IS NULL THEN 1 ELSE 0 END) AS null_zip,
+SUM(CASE WHEN seller_city IS NULL THEN 1 ELSE 0 END) AS null_city,
+SUM(CASE WHEN seller_state IS NULL THEN 1 ELSE 0 END) AS null_state
+FROM dbo.olist_sellers_dataset;
+```
+Result:
+
+The query counts the number of missing values across all seller attributes.
+
+Conclusion:
+
+The analysis confirms that the key seller attributes (seller_id, seller_zip_code_prefix, seller_city, seller_state) contain no missing values, indicating that the seller dataset is complete and reliable for geographic analysis.
+
+#### Duplicate Seller ID Check
+To ensure data integrity, a duplicate check was performed on the seller_id column.
+sql query:
+```sql
+SELECT 
+seller_id,
+COUNT(*) AS dup_counts
+FROM dbo.olist_sellers_dataset
+GROUP BY seller_id
+HAVING COUNT(*) > 1;
+```
+Result:
+
+The query returned 0 rows, indicating that there are no duplicated seller identifiers.
+
+Conclusion:
+
+Each seller in the dataset is uniquely identified by seller_id.
+Therefore, seller_id can safely be used as the primary key for the sellers table.
+
+#### Seller Distribution by State
+To understand how sellers are distributed geographically across Brazilian states, a query was executed to count the number of sellers per state.
+sql query:
+```sql
+SELECT 
+seller_state,
+COUNT(*) AS total_sellers
+FROM dbo.olist_sellers_dataset
+GROUP BY seller_state
+ORDER BY total_sellers DESC;
+```
+Result:
+
+The query returns the number of sellers in each Brazilian state.
+
+Conclusion:
+
+This analysis helps identify regions with higher seller concentration.
+States with larger numbers of sellers may indicate major logistics hubs or economic centers in the Olist marketplace.
+
+#### Seller City Validation
+To examine the variety of cities represented in the dataset and detect possible formatting inconsistencies, the distinct seller cities were retrieved.
+
+sql query:
+```sql
+SELECT DISTINCT seller_city
+FROM dbo.olist_sellers_dataset
+ORDER BY seller_city;
+```
+Result:
+
+The query lists all unique city names associated with sellers.
+
+Conclusion:
+
+This step helps identify potential data quality issues such as:
+inconsistent city name formatting
+spelling variations
+encoding differences
+These inconsistencies may affect geographic aggregation or location-based analysis.
+
+### 9. Product Category Translation Table
+#### Data Completeness Check
+To verify data completeness, a query was executed to count the number of NULL values in each column of the product_category_name_translation table.
+sql query:
+```sql
+SELECT
+SUM(CASE WHEN product_category_name IS NULL THEN 1 ELSE 0 END) AS null_category,
+SUM(CASE WHEN product_category_name_english IS NULL THEN 1 ELSE 0 END) AS null_category_eng
+FROM dbo.product_category_name_translation;
+```
+Result:
+
+The query counts the number of missing values in both category columns.
+
+Conclusion:
+
+Both columns are expected to contain valid category names.
+If NULL values exist, they may indicate missing translations or incomplete category mappings.
+However, because this table acts as a lookup table for category translation, missing values would affect joins with the products dataset and may lead to undefined product categories in analysis.
+
+#### Duplicate Category Check
+To ensure each category appears only once in the translation table, a duplicate check was performed on the product_category_name column.
+sql query:
+```sql
+SELECT 
+product_category_name,
+COUNT(*) AS dup_counts
+FROM dbo.product_category_name_translation
+GROUP BY product_category_name
+HAVING COUNT(*) > 1;
+```
+The query returns any category names that appear more than once.
+Conclusion:
+
+Each Portuguese category name should appear only once in the translation table.
+If duplicates exist, they could lead to ambiguous category mappings during joins with the products table.
+
+#### Category Name Validation
+To examine all unique category names stored in the translation table.
+
+sql query:
+```sql
+SELECT DISTINCT product_category_name
+FROM dbo.product_category_name_translation
+GROUP BY product_category_name;
+```
+Result:
+
+The query lists all unique category names available in the dataset.
+
+Conclusion:
+
+This step ensures that category names are stored consistently and helps detect potential formatting issues such as:
+inconsistent naming conventions
+encoding differences
+spelling variations
+A clean and consistent category translation table ensures reliable joins with the olist_products_dataset table and improves category-level analysis.
+
+
+
+
+
+
+
+
+
+
 
 
 
