@@ -281,7 +281,8 @@ This represents approximately **0.28% of the total records**.
 Since the percentage is very small, the issue is considered **minor** and does not significantly impact geographic analysis.
 
 These records were **retained in the dataset** and marked with `flag_missing_geo = 1` to indicate missing geographic information.
-###2. Geolocation Data Aggregation
+
+### 2. Geolocation Data Aggregation
 
 The original `olist_geolocation_dataset` contains multiple records for the same ZIP code prefix because each record represents a specific latitude and longitude point.
 
@@ -314,6 +315,7 @@ Conclusion:
 
 By aggregating the geolocation data at the ZIP code prefix level, the dataset now provides a **clean reference table for geographic information**.  
 Each ZIP code prefix is represented by a single record, which simplifies joins with the `customers` table and improves query performance in subsequent analysis.
+
 #### Data Completeness Check
 
 To verify the completeness of the geolocation dataset, a check was performed to identify missing ZIP code prefixes.
@@ -439,7 +441,7 @@ This indicates **text formatting inconsistencies** in the `city` column, likely 
 
 Such inconsistencies may affect grouping, aggregation, or geographic analysis.  
 Therefore, city names should be standardized during the data cleaning process to ensure consistent analysis results.
-###3. Order Items Table
+### 3. Order Items Table
 Data Completeness Check
 
 To evaluate data completeness, all columns in the olist_order_items_dataset table were checked for missing values.
@@ -648,8 +650,426 @@ ORDER BY freight_value DESC;
 ```
 Identify the orders with the highest shipping costs to detect potential outliers or expensive logistics cases.
 
+### 4. Order payments table 
+To assess data completeness, a query was executed to count the number of NULL values in each column.
+
+sql query:
+```sql
+SELECT 
+SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END) AS null_order_id,
+SUM(CASE WHEN payment_sequential IS NULL THEN 1 ELSE 0 END) AS null_payment_sequential,
+SUM(CASE WHEN payment_type IS NULL THEN 1 ELSE 0 END) AS null_payment_type,
+SUM(CASE WHEN payment_installments IS NULL THEN 1 ELSE 0 END) AS null_payment_installments,
+SUM(CASE WHEN payment_value IS NULL THEN 1 ELSE 0 END) AS null_payment_value
+FROM dbo.olist_order_payments_dataset;
+```
+
+Result:
+| Column               | NULL Values |
+| -------------------- | ----------- |
+| order_id             | 0           |
+| payment_sequential   | 0           |
+| payment_type         | 0           |
+| payment_installments | 0           |
+| payment_value        | 0           |
+
+Conclusion:
+
+The result shows that no missing values were found in any column of the olist_order_payments_dataset table.
+
+This indicates that the payment dataset is complete and reliable for further analysis.
+Since all records contain valid values for payment information, no additional data cleaning steps are required for missing values in this table.
+
+#### Duplicate Check
+To ensure data integrity, a duplicate check was performed to verify whether any records share the same combination of order_id and payment_sequential.
+
+sql query:
+```sql
+SELECT 
+    order_id, 
+    payment_sequential, 
+    COUNT(*) AS dup_counts
+FROM dbo.olist_order_payments_dataset
+GROUP BY order_id, payment_sequential
+HAVING COUNT(*) > 1;
+```
+Result:
+The query returned 0 rows, indicating that no duplicate records were found for the combination of order_id and payment_sequential.
+
+Consclusion:
+The result confirms that each pair of order_id and payment_sequential appears only once in the olist_order_payments_dataset table.
+
+#### Payment Type Distribution
+To analyze payment behavior, a query was performed to count the number of occurrences for each payment_type and calculate its percentage relative to the total number of payment records.
+sql query:
+```
+SELECT
+    payment_type,
+    COUNT(*) AS payment_type_counts,
+    COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() AS percentage
+FROM dbo.olist_order_payments_dataset
+GROUP BY payment_type
+ORDER BY percentage DESC;
+```
+Result:
+| Payment Type | Number of Records | Percentage |
+| ------------ | ----------------- | ---------- |
+| credit_card  | 76,795            | 73.92%     |
+| boleto       | 19,784            | 19.04%     |
+| voucher      | 5,775             | 5.56%      |
+| debit_card   | 1,529             | 1.47%      |
+| not_defined  | 3                 | 0.003%     |
+
+Consclusion:
+The analysis indicates that credit cards are by far the most commonly used payment method, representing approximately 74% of all payment transactions in the dataset.
+
+The second most frequently used method is boleto, accounting for about 19% of payments, which is consistent with Brazil’s payment ecosystem where boleto (bank slip payment) is widely used for online purchases.
+
+#### Invalid Installments Check
+Since installment payments cannot logically be zero or negative, a data validation check was performed to identify records where payment_installments <= 0.
+Such values may indicate data entry errors or inconsistencies in the dataset.
+
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_order_payments_dataset
+WHERE payment_installments <= 0;
+```
+Result:
+The query returned 2 records where payment_installments = 0.
+Example records:
+| order_id                         | payment_sequential | payment_type | payment_installments | payment_value |
+| -------------------------------- | ------------------ | ------------ | -------------------- | ------------- |
+| 744bade1fcf9ff3f31d860ace076d422 | 2                  | credit_card  | 0                    | 58.69         |
+| 1a57108394169c0b47d8f876acc9ba2d | 2                  | credit_card  | 0                    | 129.94        |
 
 
+Consclusion:
+The analysis identified 2 records with invalid installment values (payment_installments = 0).
+
+Since installment payments should have a minimum value of 1, these records likely represent data entry errors or inconsistencies in the original dataset.
+
+#### Installment Outlier Check
+To detect potential anomalies, a query was performed to identify records where the installment count is unusually high (payment_installments > 24).
+
+sql query:
+```sql
+SELECT payment_installments
+FROM dbo.olist_order_payments_dataset
+WHERE payment_installments > 24;
+```
+Result:
+The query returned 0 rows.
+
+This indicates that no payment records contain installment counts greater than 24, meaning there are no extreme outliers in the installment data.
+
+Consclusion:
+The analysis shows that all installment values fall within a reasonable and expected range.
+
+No unusually large installment counts were detected, suggesting that the payment_installments column does not contain extreme outliers and can be considered consistent and reliable for further analysis.
+
+#### Negative Payment Value Check
+Since payment_value represents an amount of money paid by the customer, it should logically always be greater than or equal to zero. Negative values would indicate data corruption, input errors, or invalid transactions.
+
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_order_payments_dataset
+WHERE payment_value < 0;
+```
+Result:
+The query returned 0 rows, indicating that no payment records contain negative values.
+
+This means that all payment transactions have valid non-negative payment amounts.
+
+Conclusion:
+The analysis confirms that the payment_value column does not contain negative values.
+
+This indicates that the dataset maintains financial consistency, as all recorded payments represent valid transaction amounts.
+
+#### Zero Payment Value Check
+The column payment_value represents the amount of money paid by a customer for a specific payment transaction.
+Therefore, a validation check was performed to identify records where payment_value = 0.
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_order_payments_dataset
+WHERE payment_value = 0;
+```
+Result:
+
+The query returned 9 records where the payment value equals zero.
+
+Example records:
+| order_id                         | payment_sequential | payment_type | payment_installments | payment_value |
+| -------------------------------- | ------------------ | ------------ | -------------------- | ------------- |
+| 8bcbe01d44d147f901cd3192671144db | 4                  | voucher      | 1                    | 0             |
+| fa65dad1b0e818e3ccc5b0e39231352  | 14                 | voucher      | 1                    | 0             |
+| 6ccb433e00daae1283ccc956189c82ae | 4                  | voucher      | 1                    | 0             |
+| ...                              | ...                | ...          | ...                  | 0             |
+
+Conclusion:
+
+The dataset contains 9 payment records with a value of zero.
+
+These records are primarily linked to the voucher payment type, which suggests that the order value may have been fully covered by vouchers or promotional credits.
+
+Given the extremely small proportion of these records relative to the total number of payment transactions, they can be considered valid edge cases rather than data errors.
+
+#### Payment Value Summary Statistics
+These statistics provide a general overview of the dataset and help detect unusual patterns such as extreme values or abnormal transaction ranges.
+sql query:
+```sql
+SELECT
+COUNT(*) AS total_rows,
+MIN(payment_value) AS min_payment,
+MAX(payment_value) AS max_payment,
+AVG(payment_value) AS avg_payment,
+STDEV(payment_value) AS std_payment
+FROM dbo.olist_order_payments_dataset;
+```
+Result:
+| Metric      | Value     |
+| ----------- | --------- |
+| total_rows  | 103,886   |
+| min_payment | 0         |
+| max_payment | 13,664.08 |
+| avg_payment | 154.10    |
+| std_payment | 217.49    |
+
+Conclusion:
+The statistical summary indicates that most payment transactions fall within a moderate price range, while a small number of transactions have significantly higher payment values.
+
+The presence of a minimum value of 0 aligns with earlier findings that some orders are fully covered by vouchers or promotional credits.
+
+The relatively high standard deviation compared to the average payment value suggests that the dataset may contain a number of high-value transactions. These records should be examined further to determine whether they represent legitimate large purchases or potential outliers.
+
+Overall, the payment value distribution appears reasonable and consistent with typical e-commerce transaction patterns, where most purchases have moderate prices while a small number of transactions involve higher spending.
+
+#### High Payment Value Inspection
+To better understand the distribution of payment values and identify potential extreme transactions, a query was executed to retrieve the top 20 highest payment values in the dataset.
+
+sql query:
+```sql
+SELECT TOP 20
+order_id,
+payment_type,
+payment_value
+FROM dbo.olist_order_payments_dataset
+ORDER BY payment_value DESC;
+```
+Result:
+
+The query returned the 20 highest payment transactions in the dataset.
+Example records:
+| order_id                         | payment_type | payment_value |
+| -------------------------------- | ------------ | ------------- |
+| 03caa2c082116e1d31e67e9ae3700499 | credit_card  | 13664.08      |
+| 736e1922ae60d0d6a89247b851902527 | boleto       | 7274.88       |
+| 0812eb902a67711a1cb742b3cdaa65ae | credit_card  | 6929.31       |
+| fefacc6a6859508bf1a7934eab1e97f  | boleto       | 6922.21       |
+| f5136e38d1a14a4dbd87dff67da82701 | boleto       | 6726.66       |
+| ...                              | ...          | ...           |
+The highest payment recorded is 13,664.08, which is significantly larger than the dataset’s average payment value (~154).
+
+Conclusion:
+The inspection confirms that the dataset contains a small number of high-value transactions.
+
+Although these values are considerably larger than the average payment amount, they appear to be legitimate transactions rather than clear data errors.
+
+#### Logical Validation – Installments vs High Payment Value
+This helps determine whether high-value purchases are always associated with installment payments or if customers sometimes prefer to pay the full amount at once.
+
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_order_payments_dataset
+WHERE payment_installments = 1
+AND payment_value > 5000;
+```
+Result:
+The query returned several high-value transactions paid in a single installment.
+Example records:
+| order_id                         | payment_type | payment_installments | payment_value |
+| -------------------------------- | ------------ | -------------------- | ------------- |
+| 736e1922ae60d0d6a89247b851902527 | boleto       | 1                    | 7274.88       |
+| fefacc6a6859508bf1a7934eab1e97f  | boleto       | 1                    | 6922.21       |
+| 03caa2c082116e1d31e67e9ae3700499 | credit_card  | 1                    | 13664.08      |
+| 2cc9089445046817a7539d90805e6e5a | boleto       | 1                    | 6081.54       |
+
+Conclusion:
+The analysis shows that large payment values can occur even when payment_installments = 1.
+
+### 5. order reviews table 
+
+#### Missing Value Check
+Before performing any analysis on customer satisfaction, it is necessary to verify whether the dataset contains missing values, as NULL values could affect statistical analysis or downstream modeling.
+
+sql query:
+```sql
+SELECT
+SUM(CASE WHEN review_id IS NULL THEN 1 ELSE 0 END) AS null_review_id,
+SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END) AS null_order_id,
+SUM(CASE WHEN review_score IS NULL THEN 1 ELSE 0 END) AS null_review_score,
+SUM(CASE WHEN review_creation_date IS NULL THEN 1 ELSE 0 END) AS null_review_creation_date,
+SUM(CASE WHEN review_answer_timestamp IS NULL THEN 1 ELSE 0 END) AS null_review_answer_timestamp
+FROM dbo.olist_order_reviews_dataset;
+```
+Result:
+
+The query counts the number of NULL values in each column of the reviews dataset.
+
+Conclusion:
+The results indicate that no missing values were found in the main columns of the olist_order_reviews_dataset table.
+
+#### Duplicate Review Check
+verifying the uniqueness of review_id helps ensure data integrity before performing further analysis.
+sql query:
+```sql
+SELECT review_id, COUNT(*) AS dup_counts
+FROM dbo.olist_order_reviews_dataset
+GROUP BY review_id
+HAVING COUNT(*) > 1;
+```
+Result:
+
+The query returned multiple review IDs appearing more than once, each with a count of 2 occurrences.
+Example records:
+| review_id                        | dup_counts |
+| -------------------------------- | ---------- |
+| 58f1655df206a9a40482b929b81ee671 | 2          |
+| 466783cc2c97a17f9753dca6a1d24b4a | 2          |
+| d70b9aa33dad62363fdda2d758373314 | 2          |
+| 9840563f4c2189d0a14431a79cd92b16 | 2          |
+| fd582f520c76d0b29106fcef19d868fc | 2          |
+
+Conclusion:
+The analysis reveals that duplicate review identifiers exist in the dataset, with each duplicated review_id appearing exactly twice.
+
+#### Review Score Distribution
+Understanding how review scores are distributed also provides insights into whether most customers are satisfied or if a significant number of negative reviews exist.
+
+sql query:
+```sql
+SELECT 
+review_score,
+COUNT(*) AS total_review_score,
+COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() AS percentage
+FROM dbo.olist_order_reviews_dataset
+GROUP BY review_score
+ORDER BY review_score;
+```
+Result:
+The query returns the number of reviews for each rating and their percentage relative to the total number of reviews.
+
+Conclusion:
+The distribution of review_score provides an overview of customer satisfaction on the Olist platform.
+
+Typically, the dataset shows a strong concentration of high ratings (4–5 stars), suggesting that most customers are satisfied with their purchases and the service provided by the platform.
+
+Lower scores (1–2 stars) represent a smaller proportion of reviews and may reflect issues such as:
+delayed deliveries
+product quality problems
+mismatched customer expectations
+
+#### Review Comment Title Distribution
+The column review_comment_title represents the title of the customer review, which usually summarizes the feedback provided by the customer.
+
+sql query:
+```sql
+SELECT
+CASE 
+    WHEN review_comment_title IS NULL THEN NULL
+    ELSE 'has_title'
+END AS title_status,
+COUNT(*) AS total_counts,
+COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() AS percentage
+FROM dbo.olist_order_reviews_dataset
+GROUP BY
+CASE 
+    WHEN review_comment_title IS NULL THEN NULL
+    ELSE 'has_title'
+END;
+```
+Result:
+| title_status | total_counts | percentage |
+| ------------ | ------------ | ---------- |
+| NULL         | 87,658       | 88%        |
+| has_title    | 11,566       | 11%        |
+
+Consclusion:
+The analysis indicates that most customers only provide a numerical rating without adding a review title.
+
+Approximately 88% of reviews contain no title, while only about 11% include a comment title.
+
+#### Review Comment Message Distribution
+The review dataset includes both structured ratings and optional text fields such as review_comment_title and review_comment_message, which can be useful for deeper customer experience analysis.
+
+sql query:
+```sql
+SELECT
+CASE 
+    WHEN review_comment_message IS NULL THEN NULL
+    ELSE 'has_message'
+END AS message_status,
+COUNT(*) AS total_counts,
+COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() AS percentage
+FROM dbo.olist_order_reviews_dataset
+GROUP BY
+CASE 
+    WHEN review_comment_message IS NULL THEN NULL
+    ELSE 'has_message'
+END;
+```
+Result:
+| message_status | total_counts | percentage |
+| -------------- | ------------ | ---------- |
+| NULL           | 58,256       | 58%        |
+| has_message    | 40,968       | 41%        |
+
+Conclusion:
+The analysis indicates that a significant portion of reviews consist only of numeric ratings without written feedback.
+
+Approximately 58% of reviews do not include a comment message, while about 41% contain textual feedback.
+
+#### Review Timestamp Validation
+The review dataset records customer feedback and the seller’s response timing, which is useful for analyzing customer satisfaction and service responsiveness.
+
+#### 1. Timestamp Range Check
+sql query:
+```sql
+SELECT
+MIN(review_creation_date) AS min_creation,
+MAX(review_creation_date) AS max_creation,
+MIN(review_answer_timestamp) AS min_answer,
+MAX(review_answer_timestamp) AS max_answer
+FROM dbo.olist_order_reviews_dataset;
+```
+Result:
+| min_creation | max_creation | min_answer | max_answer |
+| ------------ | ------------ | ---------- | ---------- |
+| 2016-10-02   | 2018-08-31   | 2016-10-07 | 2018-10-29 |
+
+Conclusion:
+The timestamp ranges show that:
+customer reviews were created between October 2016 and August 2018
+seller responses occurred between October 2016 and October 2018
+The response timestamps extend slightly beyond the review creation period, which is expected because sellers may respond days or weeks after a review is posted.
+
+#### 2.Logical Consistency Check
+sql query:
+```sql
+SELECT *
+FROM dbo.olist_order_reviews_dataset
+WHERE review_answer_timestamp < review_creation_date;
+```
+Result:
+The query returned 0 rows.
+
+Conclusion:
+The timestamp logic in the review dataset is valid:
+No cases were found where review_answer_timestamp occurs before review_creation_date.
+This confirms that the review timeline is logically consistent.
 
 
 
