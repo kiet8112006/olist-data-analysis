@@ -2,34 +2,56 @@
 SQL Data Quality Analysis for Olist E-commerce Dataset
 ## Dataset Overview
 
-The dataset contains information about customers, orders, order items,
-payments, reviews, products, sellers, geolocation, and product category
-translations.
+The dataset contains transactional data from the Brazilian
+e-commerce platform Olist.
 
-Total tables analyzed: 9
+It includes information about customers, orders, order items,
+payments, reviews, products, sellers, geolocation, and product
+category translations.
+
+The dataset contains approximately **100,000 orders between
+2016 and 2018**, covering multiple online marketplaces.
 
 ---
 
 ## Data Quality Dimensions
 
-- Data completeness
-- Data consistency
-- Data uniqueness
-- Data validity
+The dataset was evaluated using several common data quality dimensions:
 
+- **Data Completeness** – detecting missing values
+- **Data Uniqueness** – identifying duplicate records
+- **Data Validity** – verifying acceptable value ranges
+- **Data Consistency** – validating logical relationships between fields
 ---
-## Data Model
+### Core Transaction Flow
 
-The Olist dataset is a relational e-commerce database composed of multiple interconnected tables.  
-These tables represent customers, orders, products, sellers, payments, reviews, and geographical information.
-
-Understanding the relationships between tables is essential for accurate data analysis and proper data quality validation.
-
-### Main Transaction Flow
-
-The core transaction flow of the dataset follows this structure:
+The primary transaction flow of the dataset is:
 
 customers → orders → order_items → products
+
+This flow represents the lifecycle of an e-commerce transaction,
+starting from customer purchase to the product level.
+
+## Data Model
+Understanding the relationships between tables is essential for:
+
+- performing accurate joins between tables
+- validating **foreign key relationships**
+- detecting potential **data quality issues**
+- supporting downstream analytical queries
+
+## Analysis Scope
+
+This project focuses on evaluating the data quality of
+each table in the dataset.
+
+The analysis includes:
+
+- missing value detection
+- duplicate record identification
+- logical validation of timestamps
+- validation of numeric fields
+- cross-table consistency checks
 
 ### Table Relationships
 
@@ -79,25 +101,13 @@ To evaluate data completeness, all columns in the `olist_customers_dataset` tabl
 SQL queries used:
 
 ```sql
-select count(*) as null_customer_id 
-from dbo.olist_customers_dataset
-where customer_id is null;
-
-select count(*) as null_customer_unique_id 
-from dbo.olist_customers_dataset
-where customer_unique_id is null;
-
-select count(*) as null_customer_zip_code_prefix 
-from dbo.olist_customers_dataset
-where customer_zip_code_prefix is null;
-
-select count(*) as null_customer_city 
-from dbo.olist_customers_dataset
-where customer_city is null;
-
-select count(*) as null_customer_state 
-from dbo.olist_customers_dataset
-where customer_state is null;
+SELECT
+SUM(CASE WHEN customer_id IS NULL THEN 1 ELSE 0 END) AS null_customer_id,
+SUM(CASE WHEN customer_unique_id IS NULL THEN 1 ELSE 0 END) AS null_customer_unique_id,
+SUM(CASE WHEN customer_zip_code_prefix IS NULL THEN 1 ELSE 0 END) AS null_zip,
+SUM(CASE WHEN customer_city IS NULL THEN 1 ELSE 0 END) AS null_city,
+SUM(CASE WHEN customer_state IS NULL THEN 1 ELSE 0 END) AS null_state
+FROM dbo.olist_customers_dataset;
 ```
 
 
@@ -130,9 +140,7 @@ Result:
 The query returned **0 rows**, which means no `customer_id` values appear more than once.
 
 Conclusion:
-
-The `customer_id` column is unique across the dataset and can safely be used as the **primary key** for identifying individual customer order records.
-
+The `customer_id` column is unique across the dataset and can safely be used as the primary key of the customers table
 #### Customer Unique ID Analysis
 
 To understand customer purchasing behavior, the number of orders associated with each `customer_unique_id` was analyzed.
@@ -165,9 +173,10 @@ Therefore:
 - `customer_unique_id` represents the **actual customer**
 
 This structure is consistent with a typical **e-commerce database design**, where a single customer can place multiple orders.
+This design allows the dataset to track multiple orders made by the same customer across time.
 #### ZIP Code Standardization
 
-The column `customer_zip_code_prefix` represents the customer's postal code prefix.  
+The column customer_zip_code_prefix represents the customer's postal code prefix rather than the full ZIP code.
 To ensure consistency, the ZIP code format was standardized to **5 digits**.
 
 SQL query used:
@@ -191,7 +200,7 @@ To ensure consistency in text-based columns, the `customer_city` and `customer_s
 - Removing leading and trailing spaces
 - Converting all text to uppercase format
 
-SQL queries used:
+SQL queries:
 
 ```sql
 update dbo.olist_customers_dataset
@@ -209,6 +218,10 @@ All values in `customer_city` and `customer_state` were standardized by removing
 Conclusion:
 
 This ensures consistent formatting of location data and prevents inconsistencies during grouping, filtering, or aggregation in future analysis.
+This prevents inconsistencies such as:
+- "Sao Paulo"
+- "sao paulo"
+- "SAO PAULO"
 #### Geolocation Validation
 
 To verify that customer ZIP codes can be linked to geographic coordinates,  
@@ -246,11 +259,10 @@ For these records:
 - `flag_missing_geo = 1`
 
 Conclusion:
+This validation confirms that some customer ZIP code prefixes do not exist in the geolocation reference table.
+These records may require additional investigation during geographic analysis.  
 
-Some customer ZIP codes do not exist in the geolocation reference table.  
-These records may require additional investigation or handling during geographic analysis.
 #### Geolocation Validation Impact Analysis
-
 To measure the impact of unmatched ZIP codes, the proportion of customers whose ZIP codes could not be linked to the geolocation dataset was calculated.
 
 SQL query used:
@@ -282,6 +294,15 @@ Since the percentage is very small, the issue is considered **minor** and does n
 
 These records were **retained in the dataset** and marked with `flag_missing_geo = 1` to indicate missing geographic information.
 
+### Customers Table Data Quality Summary
+| Check | Result |
+|------|------|
+Missing values | None detected |
+Duplicate customer_id | None detected |
+Repeat customers | Detected |
+ZIP-code match with geolocation | 99.72% matched |
+Data standardization | Applied |
+
 ### 2. Geolocation Data Aggregation
 
 The original `olist_geolocation_dataset` contains multiple records for the same ZIP code prefix because each record represents a specific latitude and longitude point.
@@ -310,7 +331,8 @@ For each ZIP code prefix:
 - `city` and `state` provide the associated location information.
 
 This aggregation reduces duplicate ZIP code entries from the original `olist_geolocation_dataset` and prepares the data for efficient joins with other tables.
-
+MAX(city) and MAX(state) were used to select a representative value
+for each ZIP code prefix after aggregation.
 Conclusion:
 
 By aggregating the geolocation data at the ZIP code prefix level, the dataset now provides a **clean reference table for geographic information**.  
@@ -323,9 +345,10 @@ To verify the completeness of the geolocation dataset, a check was performed to 
 SQL query used:
 
 ```sql
-SELECT COUNT(*) AS null_geolocation_zip_code_prefix
-FROM dbo.olist_geolocation_dataset
-WHERE geolocation_zip_code_prefix IS NULL;
+SELECT 
+SUM(CASE WHEN geolocation_zip_code_prefix IS NULL THEN 1 ELSE 0 END) 
+AS null_geolocation_zip_code_prefix
+FROM dbo.olist_geolocation_dataset;
 ```
 Result:
 
@@ -360,12 +383,10 @@ Result:
 
 Conclusion:
 
-A total of **45 ZIP code prefixes** in the `geolocation_avg` table have missing geographic coordinates (`avg_lat` and `avg_lng`).  
-These records indicate locations where latitude and longitude information is unavailable after aggregating the original geolocation dataset.
+Only 45 ZIP code prefixes have missing coordinates.
+Compared with the total number of ZIP prefixes in the dataset,
+this represents a very small proportion and is considered a minor issue.
 
-However, compared with the total number of ZIP code prefixes in the dataset, this issue affects only a **very small portion of the data** and is considered a **minor data quality issue**.
-
-These records may be excluded or handled separately during geographic analysis if precise location coordinates are required.
 #### City and State Completeness Check
 
 To verify the completeness of location attributes, a check was performed to identify missing values in the `city` and `state` columns of the aggregated geolocation table.
@@ -441,9 +462,18 @@ This indicates **text formatting inconsistencies** in the `city` column, likely 
 
 Such inconsistencies may affect grouping, aggregation, or geographic analysis.  
 Therefore, city names should be standardized during the data cleaning process to ensure consistent analysis results.
-### 3. Order Items Table
-Data Completeness Check
 
+### Geolocation Table Data Quality Summary
+| Check | Result |
+|------|------|
+Missing ZIP code prefix | None |
+Missing coordinates | 45 records |
+Missing city/state | None |
+Duplicate ZIP prefix | None |
+Text formatting issue | Detected (city name variations) |
+
+### 3. Order Items Table
+#### Data Completeness Check
 To evaluate data completeness, all columns in the olist_order_items_dataset table were checked for missing values.
 
 SQL query used:
@@ -501,6 +531,13 @@ FROM information_schema.columns
 WHERE table_name = 'olist_order_items_dataset'
 AND column_name = 'shipping_limit_date';
 ```
+Result:
+The column `shipping_limit_date` is stored as a DATETIME data type.
+
+Conclusion:
+This data type is appropriate because the column represents the
+deadline for the seller to ship the order to the logistics partner.
+
 ### Check Range of shipping_limit_date
 Check the minimum and maximum values of shipping_limit_date to detect potential anomalies in the shipping deadline data.
 sql query:
@@ -515,8 +552,9 @@ Result:
 | ----------------------- | ----------------------- |
 | 2016-09-19              | 2020-04-09              |
 Consclusion:
-The shipping deadline dates range from September 2016 to April 2020, which falls within the expected time frame of the Olist dataset.
-No abnormal values were detected.
+
+The dataset mainly contains orders between 2016 and 2018,
+therefore shipping deadlines extending beyond 2018 are expected.
 
 ### Check for Negative Price Values
 Verify that the price column does not contain negative values, since product prices should not be below zero.
@@ -587,7 +625,7 @@ SELECT
     MIN(price) AS min_price,
     MAX(price) AS max_price,
     AVG(price) AS avg_price,
-    STD(price) AS std_price
+    STDEV(price) AS std_price
 FROM dbo.olist_order_items_dataset;
 ```
 Result:
@@ -611,8 +649,10 @@ WHERE freight_value > price;
 ```
 Result:
 The query returned 4,507 rows.
-Interpretation:
-There are 4,507 order items where the shipping cost is higher than the product price.
+This situation may occur when:
+- the product price is very low
+- the shipping distance is large
+- the item has high shipping weight or dimensions
  
 ### Freight Value Distribution Overview
 Analyze the overall distribution of the freight_value column to understand shipping cost patterns.
@@ -650,7 +690,17 @@ ORDER BY freight_value DESC;
 ```
 Identify the orders with the highest shipping costs to detect potential outliers or expensive logistics cases.
 
-### 4. Order payments table 
+### Order Items Table Data Quality Summary
+| Check | Result |
+|------|------|
+Missing values | None |
+Duplicate records | None |
+Invalid price values | None |
+Zero price values | None |
+Freight > price | 4,507 records |
+Shipping date range | Valid |
+
+### 4. Order Payments table 
 To assess data completeness, a query was executed to count the number of NULL values in each column.
 
 sql query:
@@ -696,7 +746,7 @@ HAVING COUNT(*) > 1;
 Result:
 The query returned 0 rows, indicating that no duplicate records were found for the combination of order_id and payment_sequential.
 
-Consclusion:
+Conclusion:
 The result confirms that each pair of order_id and payment_sequential appears only once in the olist_order_payments_dataset table.
 
 #### Payment Type Distribution
@@ -720,13 +770,14 @@ Result:
 | debit_card   | 1,529             | 1.47%      |
 | not_defined  | 3                 | 0.003%     |
 
-Consclusion:
+Conclusion:
 The analysis indicates that credit cards are by far the most commonly used payment method, representing approximately 74% of all payment transactions in the dataset.
 
 The second most frequently used method is boleto, accounting for about 19% of payments, which is consistent with Brazil’s payment ecosystem where boleto (bank slip payment) is widely used for online purchases.
 
 #### Invalid Installments Check
-Since installment payments cannot logically be zero or negative, a data validation check was performed to identify records where payment_installments <= 0.
+Since installment payments cannot logically be zero or negative, a data validation check was performed to identify records where payment_installments <= 0.Installments are typically used for credit card payments in Brazilian
+e-commerce, where customers can split the payment into multiple months.
 Such values may indicate data entry errors or inconsistencies in the dataset.
 
 sql query:
@@ -744,7 +795,7 @@ Example records:
 | 1a57108394169c0b47d8f876acc9ba2d | 2                  | credit_card  | 0                    | 129.94        |
 
 
-Consclusion:
+Conclusion:
 The analysis identified 2 records with invalid installment values (payment_installments = 0).
 
 Since installment payments should have a minimum value of 1, these records likely represent data entry errors or inconsistencies in the original dataset.
@@ -763,7 +814,7 @@ The query returned 0 rows.
 
 This indicates that no payment records contain installment counts greater than 24, meaning there are no extreme outliers in the installment data.
 
-Consclusion:
+Conclusion:
 The analysis shows that all installment values fall within a reasonable and expected range.
 
 No unusually large installment counts were detected, suggesting that the payment_installments column does not contain extreme outliers and can be considered consistent and reliable for further analysis.
@@ -871,7 +922,7 @@ Example records:
 | f5136e38d1a14a4dbd87dff67da82701 | boleto       | 6726.66       |
 | ...                              | ...          | ...           |
 The highest payment recorded is 13,664.08, which is significantly larger than the dataset’s average payment value (~154).
-
+These transactions likely correspond to high-value products or orders containing multiple expensive items.
 Conclusion:
 The inspection confirms that the dataset contains a small number of high-value transactions.
 
@@ -898,10 +949,21 @@ Example records:
 | 2cc9089445046817a7539d90805e6e5a | boleto       | 1                    | 6081.54       |
 
 Conclusion:
-The analysis shows that large payment values can occur even when payment_installments = 1.
+This confirms that high-value purchases are not always paid through
+installment plans. Some customers prefer to pay the full amount
+in a single transaction.
 
-### 5. order reviews table 
+### Order Payments Data Quality Summary
+| Check | Result |
+|------|------|
+Missing values | None |
+Duplicate records | None |
+Invalid installment values | 2 records |
+Zero payment values | 9 records |
+Negative payment values | None |
+Payment type distribution | Credit card dominates |
 
+### 5. Order reviews table 
 #### Missing Value Check
 Before performing any analysis on customer satisfaction, it is necessary to verify whether the dataset contains missing values, as NULL values could affect statistical analysis or downstream modeling.
 
@@ -920,7 +982,12 @@ Result:
 The query counts the number of NULL values in each column of the reviews dataset.
 
 Conclusion:
-The results indicate that no missing values were found in the main columns of the olist_order_reviews_dataset table.
+No missing values were detected in the core review fields such as
+review_id, order_id, review_score, and timestamps.
+
+However, optional text fields such as review_comment_title and
+review_comment_message may contain NULL values because customers
+are not required to leave written feedback.
 
 #### Duplicate Review Check
 verifying the uniqueness of review_id helps ensure data integrity before performing further analysis.
@@ -945,10 +1012,12 @@ Example records:
 
 Conclusion:
 The analysis reveals that duplicate review identifiers exist in the dataset, with each duplicated review_id appearing exactly twice.
+This may occur because multiple review records can be associated
+with the same order, or because the same review entry was duplicated
+during data collection.
 
 #### Review Score Distribution
 Understanding how review scores are distributed also provides insights into whether most customers are satisfied or if a significant number of negative reviews exist.
-
 sql query:
 ```sql
 SELECT 
@@ -997,7 +1066,7 @@ Result:
 | NULL         | 87,658       | 88%        |
 | has_title    | 11,566       | 11%        |
 
-Consclusion:
+Conclusion:
 The analysis indicates that most customers only provide a numerical rating without adding a review title.
 
 Approximately 88% of reviews contain no title, while only about 11% include a comment title.
@@ -1053,7 +1122,7 @@ Result:
 Conclusion:
 The timestamp ranges show that:
 customer reviews were created between October 2016 and August 2018
-seller responses occurred between October 2016 and October 2018
+Seller responses may occur after the review creation date because sellers often reply to customer feedback several days or weeks later.
 The response timestamps extend slightly beyond the review creation period, which is expected because sellers may respond days or weeks after a review is posted.
 
 #### 2.Logical Consistency Check
@@ -1070,6 +1139,16 @@ Conclusion:
 The timestamp logic in the review dataset is valid:
 No cases were found where review_answer_timestamp occurs before review_creation_date.
 This confirms that the review timeline is logically consistent.
+
+### Order Reviews Data Quality Summary
+| Check | Result |
+|------|------|
+Missing values (core fields) | None |
+Duplicate review_id | Detected |
+Review score range | Valid (1–5) |
+Reviews with comment title | ~11% |
+Reviews with comment message | ~41% |
+Timestamp logic | Valid |
 
 ### 6. Order table
 #### Data Completeness Check
@@ -1095,8 +1174,9 @@ Conclusion:
 
 The analysis shows that the core transactional columns (order_id, customer_id, order_status, order_purchase_timestamp) do not contain missing values.
 
-However, some columns related to the delivery process (order_approved_at, order_delivered_carrier_date, order_delivered_customer_date) contain NULL values.
-This is expected because not all orders reach the delivery stage (for example, canceled or unavailable orders).
+However, some columns related to the delivery process (order_approved_at, order_delivered_carrier_date, order_delivered_customer_date) contain NULL values. NULL values in delivery-related columns are expected because
+not all orders progress through every stage of the fulfillment process
+(e.g., canceled or unavailable orders).
 
 #### Duplicate Order ID Check
 To ensure data integrity, a duplicate check was performed on the order_id column.
@@ -1145,7 +1225,8 @@ Conclusion:
 
 Most orders in the dataset have the status delivered, indicating successful completion of transactions.
 Other statuses represent orders that are still in process or were canceled.
-
+This indicates that the majority of transactions in the dataset
+were successfully completed.
 #### Delivery Time Logical Validation
 #### 1.Approval Before Purchase Check
 sql query:
@@ -1154,10 +1235,12 @@ SELECT *
 FROM dbo.olist_orders_dataset
 WHERE order_approved_at < order_purchase_timestamp;
 ```
-Conclusion:
+Result:
+The query returned 0 rows.
 
-Payment approval should logically occur after the purchase timestamp.
-Any records returned by this query would indicate inconsistent transaction timing.
+Conclusion:
+All approval timestamps occur after the purchase timestamp,
+indicating consistent transaction timing.
 
 #### 2.Delivered to Customer Before Carrier Check
 sql query:
@@ -1193,8 +1276,9 @@ WHERE order_delivered_customer_date > order_estimated_delivery_date;
 Conclusion:
 
 These records represent late deliveries, where the actual delivery occurred after the estimated delivery date promised to the customer.
-
 This metric can later be used to analyze logistics performance and customer satisfaction.
+These records indicate delayed deliveries and can be used to
+evaluate logistics performance and its potential impact on customer satisfaction.
 
 #### Delivered Orders Without Delivery Date
 sql query:
@@ -1206,11 +1290,20 @@ AND order_delivered_customer_date IS NULL;
 ```
 Conclusion:
 
-Orders marked as delivered should normally have a valid order_delivered_customer_date.
+Orders marked as delivered should normally have a valid order_delivered_customer_date. If such cases exist, they represent inconsistent order status data and may require further investigation.
 If such records exist, they indicate missing delivery information and may require further data investigation.
 
-### 7. Products table
+### Orders Table Data Quality Summary
+| Check | Result |
+|------|------|
+Missing values | Only in delivery-related columns |
+Duplicate order_id | None |
+Order status distribution | Majority delivered |
+Timestamp logic | Valid |
+Late deliveries | Detected |
+Missing delivery dates | To be validated |
 
+### 7. Products table
 #### Data Completeness Check
 To evaluate data completeness, a query was executed to count NULL values in each column of the olist_products_dataset table.
 sql query:
@@ -1232,13 +1325,8 @@ Result:
 The query counts the number of missing values across all product attributes.
 
 Conclusion:
-
-The results show that several product attributes contain missing values, particularly fields related to:
-product name length
-product description length
-product dimensions
-product weight
-These fields are optional product attributes and their absence does not prevent transaction processing. However, missing values may affect product analysis and logistics modeling.
+Missing values mainly occur in product description, dimensions, and weight fields. These attributes are optional
+metadata provided by sellers, so their absence does not prevent orders from being processed.
 
 #### Duplicate Product ID Check
 To verify data integrity, a duplicate check was performed on the product_id column.
@@ -1298,15 +1386,14 @@ sql query:
 ```sql
 SELECT DISTINCT product_category_name
 FROM dbo.olist_products_dataset
-GROUP BY product_category_name;
 ```
 Conclusion:
-
 This check helps identify potential formatting inconsistencies such as:
 spelling variations
 encoding issues
 inconsistent naming conventions
 These inconsistencies may affect aggregation and category-based analysis.
+Category names are stored in Portuguese and can be translated to English using the product_category_name_translation table.
 
 #### Product Dimension Range Check
 To detect abnormal values in product dimensions and weight.
@@ -1323,9 +1410,8 @@ Conclusion:
 
 The minimum and maximum values provide an overview of the range of product sizes and weights.
 Extreme values may indicate:
-unusually large products
-potential data entry errors
-special product categories (e.g., furniture or appliances)
+unusually large products, potential data entry errors special product categories (e.g., furniture or appliances)
+Product dimensions and weight are important attributes for logistics cost calculations, since shipping fees often depend on product size and weight.
 
 #### Zero Dimension Check
 sql query:
@@ -1338,7 +1424,7 @@ WHERE product_length_cm = 0
 ```
 Conclusion:
 
-Products with zero dimensions are logically inconsistent, as physical items must have non-zero size.
+These values likely represent missing data that were incorrectly recorded as zero instead of NULL.
 These records may represent:
 missing data incorrectly stored as zero
 incomplete product specifications
@@ -1367,7 +1453,6 @@ MIN(product_photos_qty), MAX(product_photos_qty)
 FROM dbo.olist_products_dataset;
 ```
 Conclusion:
-
 This query provides the range of textual attributes and helps detect abnormal values such as:
 extremely long descriptions
 missing product names
@@ -1394,9 +1479,20 @@ FROM dbo.olist_products_dataset
 WHERE product_photos_qty > 10;
 ```
 Conclusion:
-
 Products with unusually large numbers of photos may represent premium product listings or potential data entry anomalies.
 Further investigation may be required to determine whether these records are valid.
+Multiple photos are common in e-commerce listings because sellers often upload several images to showcase product details and improve conversion rates.
+
+### Products Table Data Quality Summary
+| Check | Result |
+|------|------|
+Missing values | Found in several product attributes |
+Duplicate product_id | None |
+Missing category | Exists |
+Zero dimension values | Detected |
+Zero weight values | Detected |
+Text attribute anomalies | Possible |
+Photo quantity outliers | Detected |
 
 ### 8. Sellers table
 #### Data Completeness Check
@@ -1412,12 +1508,12 @@ SUM(CASE WHEN seller_state IS NULL THEN 1 ELSE 0 END) AS null_state
 FROM dbo.olist_sellers_dataset;
 ```
 Result:
-
 The query counts the number of missing values across all seller attributes.
 
 Conclusion:
-
-The analysis confirms that the key seller attributes (seller_id, seller_zip_code_prefix, seller_city, seller_state) contain no missing values, indicating that the seller dataset is complete and reliable for geographic analysis.
+No missing values were found in the seller dataset.
+All seller records contain valid identifiers and location information.
+This ensures the dataset can reliably support geographic analysis of seller distribution.
 
 #### Duplicate Seller ID Check
 To ensure data integrity, a duplicate check was performed on the seller_id column.
@@ -1431,13 +1527,11 @@ GROUP BY seller_id
 HAVING COUNT(*) > 1;
 ```
 Result:
-
 The query returned 0 rows, indicating that there are no duplicated seller identifiers.
 
 Conclusion:
-
-Each seller in the dataset is uniquely identified by seller_id.
-Therefore, seller_id can safely be used as the primary key for the sellers table.
+The seller_id column is unique and can safely serve as
+the primary key for the sellers table.
 
 #### Seller Distribution by State
 To understand how sellers are distributed geographically across Brazilian states, a query was executed to count the number of sellers per state.
@@ -1451,17 +1545,15 @@ GROUP BY seller_state
 ORDER BY total_sellers DESC;
 ```
 Result:
-
 The query returns the number of sellers in each Brazilian state.
 
 Conclusion:
-
 This analysis helps identify regions with higher seller concentration.
 States with larger numbers of sellers may indicate major logistics hubs or economic centers in the Olist marketplace.
+High seller concentration in certain states may reflect major economic centers or logistics hubs within Brazil.
 
 #### Seller City Validation
 To examine the variety of cities represented in the dataset and detect possible formatting inconsistencies, the distinct seller cities were retrieved.
-
 sql query:
 ```sql
 SELECT DISTINCT seller_city
@@ -1473,12 +1565,50 @@ Result:
 The query lists all unique city names associated with sellers.
 
 Conclusion:
+These inconsistencies may affect geographic aggregation
+when grouping by city and should be standardized during
+data cleaning.
 
-This step helps identify potential data quality issues such as:
-inconsistent city name formatting
-spelling variations
-encoding differences
-These inconsistencies may affect geographic aggregation or location-based analysis.
+#### ZIP Code Standardization
+To ensure consistent formatting and enable reliable joins with the geolocation dataset, the ZIP code prefix was standardized to a 5-digit format.
+sql query:
+```sql:
+UPDATE dbo.olist_sellers_dataset
+SET seller_zip_code_prefix = RIGHT('00000' + seller_zip_code_prefix, 5)
+WHERE seller_zip_code_prefix IS NOT NULL;
+```
+Result:
+All seller ZIP code prefixes were standardized to a 5-digit format by padding leading zeros when necessary.
+
+Conclusion:
+The seller_zip_code_prefix column now follows a consistent 5-digit postal code format, ensuring compatibility when joining with the geolocation dataset for geographic analysis.
+#### Seller Geolocation Validation
+To verify whether seller ZIP code prefixes can be mapped to geographic coordinates, a validation check was performed by joining the olist_sellers_dataset table with the aggregated geolocation reference table (geolocation_avg).
+sql query:
+```sql
+SELECT s.*
+FROM dbo.olist_sellers_dataset s
+LEFT JOIN dbo.geolocation_avg g
+ON s.seller_zip_code_prefix = g.geolocation_zip_code_prefix
+WHERE g.geolocation_zip_code_prefix IS NULL;
+```
+Result:
+The query returns seller records whose ZIP code prefixes cannot be matched with the geolocation dataset.
+
+Conclusion:
+This validation ensures that each seller location can be mapped to geographic coordinates for spatial analysis.
+If any rows are returned, it indicates that some seller ZIP code prefixes do not exist in the geolocation reference table.
+Such records may require further investigation or manual mapping before performing geographic analysis.
+
+##### Seller table data quality summary
+| Check                  | Result                                         |
+| ---------------------- | ---------------------------------------------- |
+| Missing values         | None                                           |
+| Duplicate seller_id    | None                                           |
+| ZIP code format        | Standardized to 5 digits                       |
+| Geolocation mapping    | Verified using geolocation dataset             |
+| Seller distribution    | Concentrated in several major Brazilian states |
+| City formatting issues | Possible variations detected                   |
 
 ### 9. Product Category Translation Table
 #### Data Completeness Check
@@ -1491,14 +1621,11 @@ SUM(CASE WHEN product_category_name_english IS NULL THEN 1 ELSE 0 END) AS null_c
 FROM dbo.product_category_name_translation;
 ```
 Result:
-
 The query counts the number of missing values in both category columns.
 
 Conclusion:
-
-Both columns are expected to contain valid category names.
-If NULL values exist, they may indicate missing translations or incomplete category mappings.
-However, because this table acts as a lookup table for category translation, missing values would affect joins with the products dataset and may lead to undefined product categories in analysis.
+No missing values were found in either column of the translation table.
+This confirms that each Portuguese product category has a corresponding English translation, enabling consistent category mapping during analysis.
 
 #### Duplicate Category Check
 To ensure each category appears only once in the translation table, a duplicate check was performed on the product_category_name column.
@@ -1511,15 +1638,14 @@ FROM dbo.product_category_name_translation
 GROUP BY product_category_name
 HAVING COUNT(*) > 1;
 ```
-The query returns any category names that appear more than once.
+Result:
+The query returned 0 rows, indicating that no duplicate category names exist.
 Conclusion:
-
 Each Portuguese category name should appear only once in the translation table.
 If duplicates exist, they could lead to ambiguous category mappings during joins with the products table.
 
 #### Category Name Validation
 To examine all unique category names stored in the translation table.
-
 sql query:
 ```sql
 SELECT DISTINCT product_category_name
@@ -1527,28 +1653,131 @@ FROM dbo.product_category_name_translation
 GROUP BY product_category_name;
 ```
 Result:
-
 The query lists all unique category names available in the dataset.
 
 Conclusion:
-
 This step ensures that category names are stored consistently and helps detect potential formatting issues such as:
 inconsistent naming conventions
 encoding differences
 spelling variations
 A clean and consistent category translation table ensures reliable joins with the olist_products_dataset table and improves category-level analysis.
 
+#### Category Mapping Validation
+To verify that product categories in the products table can be mapped to an English translation.
+sql query:
+```sql
+SELECT p.product_category_name
+FROM dbo.olist_products_dataset p
+LEFT JOIN dbo.product_category_name_translation t
+ON p.product_category_name = t.product_category_name
+WHERE t.product_category_name IS NULL;
+```
+Result:
+The query returns product categories that do not have a corresponding English translation.
+Conclusion:
+If rows are returned, it indicates that some product categories in the products table are missing translations.
+These records may require additional mapping or manual translation during the data cleaning process.
+
+#### Product Category Translation Data Quality Summary
+| Check                    | Result                                    |
+| ------------------------ | ----------------------------------------- |
+| Missing values           | None                                      |
+| Duplicate category names | None                                      |
+| Category mapping         | Verified                                  |
+| Purpose                  | Portuguese → English category translation |
+
+### 10. Overall Data Quality Findings
+After analyzing all nine tables in the Olist e-commerce dataset, several data quality issues and patterns were identified.
+The dataset contains approximately 100,000 orders from 2016 to 2018 and includes information about customers, sellers, products, payments, reviews, and logistics operations.
+#### Key Data Quality Findings
+| Issue Type                      | Table                 | Severity | Description                                                       |
+| ------------------------------- | --------------------- | -------- | ----------------------------------------------------------------- |
+| Missing product attributes      | products              | Medium   | Some products lack weight, dimensions, or description information |
+| Duplicate review_id             | order_reviews         | Low      | Several review identifiers appear twice                           |
+| Invalid installment values      | order_payments        | Low      | A small number of records have installment values equal to 0      |
+| Unmatched ZIP codes             | customers / sellers   | Minor    | Some ZIP code prefixes cannot be mapped to geolocation data       |
+| Missing product categories      | products              | Minor    | Some products do not have assigned categories                     |
+| City formatting inconsistencies | geolocation / sellers | Minor    | Accent differences or text formatting variations detected         |
 
 
+#### Overall Assessment
+The dataset demonstrates generally good data quality, with most issues being minor and limited in scope.
+Most transactional fields such as:
+order_id
+customer_id
+price
+payment_value
+are complete and consistent.
 
+The majority of identified issues involve optional attributes or metadata, which do not prevent transactional analysis but may require cleaning before advanced analytics or modeling.
+### 11. Data Cleaning Strategy
+Based on the identified data quality issues, a set of data cleaning and standardization steps was designed to prepare the dataset for analytical modeling.
+### Data Standardization
+Several columns required formatting adjustments to ensure consistent joins across tables.
+Examples include:
+Standardizing ZIP code prefixes to 5-digit format
+Trimming whitespace and converting text fields to uppercase
+Normalizing city names to reduce formatting inconsistencies
+Handling Missing Values
+Missing values were handled differently depending on the column type:
+Critical transactional fields were verified to contain no NULL values.
+Optional attributes such as product dimensions or descriptions were retained but flagged as incomplete.
 
+#### Handling Data Anomalies
+Several anomaly checks were performed, including:
+detecting negative or zero prices
+verifying valid payment installment values
+identifying unrealistic product dimensions
+validating timestamp relationships between purchase, approval, and delivery
+Records with minor inconsistencies were retained but documented to maintain dataset completeness.
 
+#### Data Validation
+Cross-table validation checks were also performed to ensure relational consistency, including:
+verifying foreign key relationships
+checking ZIP code mappings with the geolocation dataset
+validating category mappings between products and the translation table
+These steps help ensure the dataset is reliable for analytical queries and downstream modeling.
 
+### 12. Star Schema Design
+To support analytical queries and business intelligence reporting, the cleaned dataset can be transformed into a Star Schema data model.
 
+#### Star schema organizes data into:
+Fact tables, which store measurable events
+Dimension tables, which provide descriptive attributes for analysis
+This structure improves query performance and simplifies analytical workflows.
+Fact Table
+The primary fact table is constructed at the order item level, since each order may contain multiple products.
+Fact Table
+##### fact_order_items
+Key measures include:
+product price
+freight value
+payment value
+order quantity
+Dimension Tables
+Several dimension tables provide descriptive attributes for analysis.
+##### Dimension Table Description
+| Dimension Table | Description                                     |
+| --------------- | ----------------------------------------------- |
+| dim_customers   | Customer demographic and location information   |
+| dim_products    | Product attributes and category information     |
+| dim_sellers     | Seller location and identification data         |
+| dim_reviews     | Customer review scores and feedback             |
+| dim_date        | Derived from order timestamps for time analysis |
 
+##### Supporting Tables
+Additional lookup tables support the analytical model:
+product_category_name_translation – maps Portuguese categories to English
+geolocation – provides geographic coordinates for ZIP codes
 
-
-
+Analytical Benefits
+Using a star schema enables efficient analysis such as:
+revenue by product category
+sales trends over time
+seller performance by region
+customer satisfaction analysis
+delivery performance evaluation
+This dimensional model provides a structured foundation for building dashboards and business intelligence reports.
 
 
 
