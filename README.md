@@ -124,7 +124,6 @@ No missing values were detected in the customers table.
 
 ---
 #### Duplicate Check
-
 To ensure data integrity, the `customer_id` column was checked for duplicate values.
 
 SQL query used:
@@ -164,73 +163,67 @@ For example:
 - Other customers placed **9, 7, and 6 orders**.
 
 Conclusion:
+The analysis confirms the following structure:
+- `customer_id` represents the identifier used to link customers with orders.
+- Each order is associated with a unique `customer_id`.
+However, the same customer may appear multiple times with different `customer_id` values.
+The `customer_unique_id` represents the real customer identifier and allows tracking repeat purchases across multiple orders.
 
-This indicates that some customers made **repeat purchases** on the Olist platform.
-
-Therefore:
-
-- `customer_id` represents a **unique order record**
-- `customer_unique_id` represents the **actual customer**
-
-This structure is consistent with a typical **e-commerce database design**, where a single customer can place multiple orders.
-This design allows the dataset to track multiple orders made by the same customer across time.
-#### ZIP Code Standardization
-
-The column customer_zip_code_prefix represents the customer's postal code prefix rather than the full ZIP code.
-To ensure consistency, the ZIP code format was standardized to **5 digits**.
-
-SQL query used:
-
+#### Check for Invalid ZIP Code Values
+Brazilian ZIP code prefixes should generally fall within a 5-digit numeric range.
+sql query:
 ```sql
-update dbo.olist_customers_dataset
-set customer_zip_code_prefix = right('00000' + customer_zip_code_prefix, 5)
-where customer_zip_code_prefix is not null;
+SELECT *
+FROM olist_customers_dataset
+WHERE customer_zip_code_prefix < 10000
+   OR customer_zip_code_prefix > 99999;
 ```
-Result:
 
-All ZIP code prefixes were standardized to a **5-digit format** by padding leading zeros when necessary.
-
-Conclusion:
-
-The `customer_zip_code_prefix` column now follows a consistent **5-digit postal code format**, ensuring compatibility when joining with the geolocation dataset.
-#### Text Standardization
-
-To ensure consistency in text-based columns, the `customer_city` and `customer_state` fields were standardized by:
-
-- Removing leading and trailing spaces
-- Converting all text to uppercase format
-
-SQL queries:
-
+#### Check Distribution of Customers by ZIP Code
+Identify which geographic regions have the highest number of customers.
+sql query:
 ```sql
-update dbo.olist_customers_dataset
-set customer_city = upper(ltrim(rtrim(customer_city)))
-where customer_city is not null;
-
-update dbo.olist_customers_dataset
-set customer_state = upper(ltrim(rtrim(customer_state)))
-where customer_state is not null;
+SELECT 
+    customer_zip_code_prefix,
+    COUNT(*) AS total_customers
+FROM olist_customers_dataset
+GROUP BY customer_zip_code_prefix
+ORDER BY total_customers DESC;
 ```
-Result:
-
-All values in `customer_city` and `customer_state` were standardized by removing extra spaces and converting the text to uppercase format.
-
+#### distribution check and Data Consistency: customer_city
+sql query:
+```sql
+SELECT 
+    customer_city,
+    COUNT(*) AS total_customers
+FROM olist_customers_dataset
+GROUP BY customer_city
+ORDER BY total_customers DESC;
+```
 Conclusion:
+This analysis helps identify potential inconsistencies in city names.
+If the same city appears in multiple formats (e.g., "Sao Paulo", "sao paulo", "SAO PAULO"), 
+data standardization may be required during the cleaning stage to ensure consistent grouping 
+and aggregation in future analysis.
+#### distribution check and Data Consistency: customer_state 
+The purpose of this query is to analyze the distribution of customers across Brazilian states and verify the consistency of the customer_state column.
+sql query:
+```sql
+SELECT 
+    customer_state,
+    COUNT(*) AS total_customers
+FROM olist_customers_dataset
+GROUP BY customer_state
+ORDER BY total_customers DESC;
+```
+Conclusion:
+The distribution analysis confirms how customer records are distributed across different states in the dataset.
 
-This ensures consistent formatting of location data and prevents inconsistencies during grouping, filtering, or aggregation in future analysis.
-This prevents inconsistencies such as:
-- "Sao Paulo"
-- "sao paulo"
-- "SAO PAULO"
 #### Geolocation Validation
-
 To verify that customer ZIP codes can be linked to geographic coordinates,  
 the `customer_zip_code_prefix` column was compared with the geolocation dataset.
-
 The geolocation table was previously aggregated to create an average latitude and longitude for each ZIP code prefix (`geolocation_avg`).
-
 SQL query used:
-
 ```sql
 select 
     c.customer_id,
@@ -250,11 +243,8 @@ left join dbo.geolocation_avg g
     on c.customer_zip_code_prefix = g.geolocation_zip_code_prefix;
 ```
 Result:
-
 The validation identified **278 customer records** whose ZIP code prefixes could not be matched with the geolocation dataset.
-
 For these records:
-
 - `avg_lat` and `avg_lng` are NULL
 - `flag_missing_geo = 1`
 
@@ -264,9 +254,7 @@ These records may require additional investigation during geographic analysis.
 
 #### Geolocation Validation Impact Analysis
 To measure the impact of unmatched ZIP codes, the proportion of customers whose ZIP codes could not be linked to the geolocation dataset was calculated.
-
 SQL query used:
-
 ```sql
 SELECT 
     COUNT(*) AS total_customers,
@@ -278,7 +266,6 @@ SELECT
 FROM dbo.olist_customers_geo_check_dataset;
 ```
 Result:
-
 | Metric | Value |
 |------|------|
 | Total customers | 99,441 |
@@ -291,7 +278,6 @@ Out of **99,441 customers**, **278 ZIP codes** could not be matched with the geo
 This represents approximately **0.28% of the total records**.
 
 Since the percentage is very small, the issue is considered **minor** and does not significantly impact geographic analysis.
-
 These records were **retained in the dataset** and marked with `flag_missing_geo = 1` to indicate missing geographic information.
 
 ### Customers Table Data Quality Summary
@@ -300,8 +286,9 @@ These records were **retained in the dataset** and marked with `flag_missing_geo
 Missing values | None detected |
 Duplicate customer_id | None detected |
 Repeat customers | Detected |
+Invalid ZIP codes | None detected |
 ZIP-code match with geolocation | 99.72% matched |
-Data standardization | Applied |
+Data standardization | Required for city names |
 
 ### 2. Geolocation Data Aggregation
 
